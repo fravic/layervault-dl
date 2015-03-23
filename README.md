@@ -8,7 +8,14 @@ file for each revision cluster in your account.
 Generate an access token using the instructions
 [on LayerVault](https://developers.layervault.com/). Then, get the
 locations of the files we want to download and dump them into a text file:
-    lein repl
-    (download-layervault-map "./temp-map.txt" "YOUR_AUTH_TOKEN")
+
+```
+lein repl
+(download-layervault-map "./temp-map.txt" "YOUR_AUTH_TOKEN")
+```
+
 Then, read the text file and actually download the files:
-    (download-layervault-files "./temp-map.txt" "./path/to/dump/directory" "YOUR_AUTH_TOKEN")
+
+```
+(download-layervault-files "./temp-map.txt" "./path/to/dump/directory" "YOUR_AUTH_TOKEN")
+```
