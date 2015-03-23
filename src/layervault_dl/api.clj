@@ -15,6 +15,10 @@
   [data]
   [(get-in data ["revisions" 0 "lookup"])])
 
+(defn file-last-revision
+  [data]
+  [(get-in data ["files" 0 "links" "last_revision"])])
+
 (defn user-org-links [data] (get-all-links data "users" "organizations"))
 (defn org-project-links [data] (get-all-links data "organizations" "projects"))
 (defn project-folder-links [data] (get-all-links data "projects" "folders"))
@@ -22,7 +26,6 @@
 (defn folder-folder-links [data] (get-all-links data "folders" "folders"))
 (defn folder-file-links [data] (get-all-links data "folders" "files"))
 (defn file-revision-cluster-links [data] (get-all-links data "files" "revision_clusters"))
-(defn file-revision-last-link [data] (get-last-link data "files" "revisions"))
 (defn revision-cluster-revision-last-link [data] (get-last-link data "revision_clusters" "revisions"))
 
 (defn user-name [data] (get-in data ["users" 0 "first_name"]))
@@ -66,7 +69,7 @@
 
 (defn query-file [id access-token]
   (query-exec {file-revision-cluster-links query-revision-cluster
-               file-revision-last-link query-revision}
+               file-last-revision query-revision}
                "files" id file-name access-token))
 
 (defn query-folder [id access-token]

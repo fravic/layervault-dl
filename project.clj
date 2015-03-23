@@ -6,4 +6,5 @@
     [org.clojure/data.json "0.2.6"]
     [http-kit "2.1.16"]
   ]
+  :jvm-opts ["-Xmx1G"] ;; To download large layervault files
   :main layervault-dl.core)

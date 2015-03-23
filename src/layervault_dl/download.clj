@@ -10,8 +10,11 @@
 
 (defn write-file
   [file path]
-  (with-open [w (clojure.java.io/output-stream path)]
-    (.write w (:body file))))
+  (try
+    (with-open [w (clojure.java.io/output-stream path)]
+      (.write w (:body file))
+      (.close w))
+    (catch Exception e (println (str "ERROR writing file: " (pr-str e) "")))))
 
 (defn path-drop-last [path]
   (string/join "/" (drop-last (string/split path #"/"))))
@@ -26,7 +29,10 @@
   [path url]
   (mkdirp (path-drop-last path))
   (println (str "Downloading " path " from " url))
-  (write-file @(http/get url {:insecure? true :as :byte-array}) path))
+  (let [file (java.io.File. path)]
+    (if (.exists file)
+      (println "Already exists, skipping...")
+      (write-file @(http/get url {:insecure? true :as :byte-array}) path))))
 
 (defn download-all
   [path-so-far data-map access-token]
