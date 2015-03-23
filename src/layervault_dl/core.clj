@@ -20,7 +20,7 @@
   [(get-in data ["revisions" 0 "lookup"])])
 
 (defn user-org-links [data] (get-all-links data "users" "organizations"))
-(defn org-project-links [data] (get-last-link data "organizations" "projects")) ;; TODO: get-all-links
+(defn org-project-links [data] (get-all-links data "organizations" "projects"))
 (defn project-folder-links [data] (get-all-links data "projects" "folders"))
 (defn project-file-links [data] (get-all-links data "projects" "files"))
 (defn folder-folder-links [data] (get-all-links data "folders" "folders"))
@@ -49,18 +49,18 @@
 
 (defn query-exec-filter [filter callback data naming-fn access-token]
   {(naming-fn data)
-    (map
+    (doall (map
       #(callback % access-token)
-      (filter data))})
+      (filter data)))})
 
 (defn query-exec [link-functions url id naming-fn access-token]
   (println (str (endpoint url id access-token)))
   (let [data (-> (endpoint url id access-token)
                  slurp
                  json/read-str)]
-    (map
+    (doall (map
       #(query-exec-filter % (get link-functions %) data naming-fn access-token)
-      (keys link-functions))))
+      (keys link-functions)))))
 
 (defn download-url [url access-token]
   url)
@@ -125,7 +125,6 @@
 
 (defn download-data-map
   [path-so-far data-map access-token]
-  (println "Downoading data map...")
   (cond
     (= (type data-map) clojure.lang.PersistentList)
       (map #(download-data-map path-so-far % access-token) data-map)
@@ -137,26 +136,12 @@
         (str LAYERVAULT-DOWNLOAD data-map "?access_token=" access-token))))
 
 
-;; Entry point
+;; Executable functions
 
-(def usage "layervault-dl ACCESS_TOKEN OUTPUT_DIR")
-(def cli-options [])
+(defn download-layervault-map
+  [map-out auth-token]
+  (spit map-out (pr-str (query-user auth-token))))
 
-(defn error-msg [errors]
-  (str "The following errors occurred while parsing your command:\n\n"
-       (string/join \newline errors)))
-
-(defn exit [status msg]
-  (println msg)
-  (System/exit status))
-
-(defn -main [& args]
-  "Downloads revisions for the given access token into the specified directory"
-  (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
-    (cond
-      (not= (count arguments) 2) (exit 1 usage)
-      errors (exit 1 (error-msg errors)))
-    (let [auth-token (first arguments)
-          dir (second arguments)
-          dl-data (query-user auth-token)]
-      (download-data-map dir dl-data auth-token))))
+(defn download-layervault-files
+  [map-in dl-path auth-token]
+  (download-data-map dl-path (read-string (slurp map-in)) auth-token))
