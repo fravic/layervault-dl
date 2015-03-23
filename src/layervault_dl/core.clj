@@ -1,7 +1,8 @@
 (ns layervault-dl.core
   (:require [clojure.string :as string]
             [clojure.data.json :as json]
-            [clojure.tools.cli :refer [parse-opts]]))
+            [clojure.tools.cli :refer [parse-opts]]
+            [org.httpkit.client :as http]))
 
 
 ;; LayerVault API parsing
@@ -14,15 +15,27 @@
   [data object link]
   [(last (get-in data [object 0 "links" link]))])
 
+(defn revision-download-url
+  [data]
+  [(get-in data ["revisions" 0 "lookup"])])
+
 (defn user-org-links [data] (get-all-links data "users" "organizations"))
-(defn org-project-links [data] (get-all-links data "organizations" "projects"))
+(defn org-project-links [data] (get-last-link data "organizations" "projects")) ;; TODO: get-all-links
 (defn project-folder-links [data] (get-all-links data "projects" "folders"))
 (defn project-file-links [data] (get-all-links data "projects" "files"))
 (defn folder-folder-links [data] (get-all-links data "folders" "folders"))
 (defn folder-file-links [data] (get-all-links data "folders" "files"))
 (defn file-revision-cluster-links [data] (get-all-links data "files" "revision_clusters"))
 (defn file-revision-last-link [data] (get-last-link data "files" "revisions"))
-(defn revision-cluster-revision-last-link [data] (get-last-link data "files" "revisions"))
+(defn revision-cluster-revision-last-link [data] (get-last-link data "revision_clusters" "revisions"))
+
+(defn user-name [data] (get-in data ["users" 0 "first_name"]))
+(defn org-name [data] (get-in data ["organizations" 0 "slug"]))
+(defn project-name [data] (get-in data ["projects" 0 "slug"]))
+(defn folder-name [data] (get-in data ["folders" 0 "slug"]))
+(defn file-name [data] (get-in data ["files" 0 "slug"]))
+(defn revision-cluster-name [data] (str "rev-" (get-in data ["revision_clusters" 0 "cluster_number"])))
+(defn revision-name [data] (str "save-" (get-in data ["revisions" 0 "slug"])))
 
 
 ;; LayerVault API queries
@@ -34,54 +47,94 @@
     (when id (str "/" id))
     "/?access_token=" access-token))
 
-(defn query-exec-filter [filter callback data access-token]
-  (map
-    #(callback % access-token)
-    (filter data)))
+(defn query-exec-filter [filter callback data naming-fn access-token]
+  {(naming-fn data)
+    (map
+      #(callback % access-token)
+      (filter data))})
 
-(defn query-exec [link-functions url id access-token]
+(defn query-exec [link-functions url id naming-fn access-token]
   (println (str (endpoint url id access-token)))
   (let [data (-> (endpoint url id access-token)
                  slurp
                  json/read-str)]
     (map
-      #(query-exec-filter % (get link-functions %) data access-token)
+      #(query-exec-filter % (get link-functions %) data naming-fn access-token)
       (keys link-functions))))
 
+(defn download-url [url access-token]
+  url)
+
 (defn query-revision [id access-token]
-  (println (str "Querying revision..." id))
-  id)
+  (query-exec {revision-download-url download-url}
+               "revisions" id revision-name access-token))
 
 (defn query-revision-cluster [id access-token]
-  (println (str "Querying revision cluster..." id))
   (query-exec {revision-cluster-revision-last-link query-revision}
-               "revision_clusters" id access-token))
+               "revision_clusters" id revision-cluster-name access-token))
 
 (defn query-file [id access-token]
-  (println (str "Querying file..." id))
   (query-exec {file-revision-cluster-links query-revision-cluster
                file-revision-last-link query-revision}
-               "files" id access-token))
+               "files" id file-name access-token))
 
 (defn query-folder [id access-token]
-  (println (str "Querying folder..." id))
   (query-exec {folder-folder-links query-folder
                folder-file-links query-file}
-               "folders" id access-token))
+               "folders" id folder-name access-token))
 
 (defn query-project [id access-token]
-  (println (str "Querying project id... " id))
   (query-exec {project-folder-links query-folder
                project-file-links query-file}
-               "projects" id access-token))
+               "projects" id project-name access-token))
 
 (defn query-org [id access-token]
-  (println (str "Querying organization id..." id))
-  (query-exec {org-project-links query-project} "organizations" id access-token))
+  (query-exec {org-project-links query-project} "organizations" id org-name access-token))
 
 (defn query-user [access-token]
-  (println "Querying user...")
-  (query-exec {user-org-links query-org} "me" nil access-token))
+  (query-exec {user-org-links query-org} "me" nil user-name access-token))
+
+
+;; Download management
+
+(def LAYERVAULT-DOWNLOAD "http://layervault.com/files/download_node/")
+
+(defn guess-file-extension
+  [path]
+  (string/join (drop 2 (re-find #"--[a-z]+" path))))
+
+(defn write-file
+  [file path]
+  (with-open [w (clojure.java.io/output-stream path)]
+    (.write w (:body file))))
+
+(defn path-drop-last [path]
+  (string/join "/" (drop-last (string/split path #"/"))))
+
+(defn mkdirp [path]
+  (let [dir (java.io.File. path)]
+    (if (.exists dir)
+      true
+      (.mkdirs dir))))
+
+(defn download-file
+  [path url]
+  (mkdirp (path-drop-last path))
+  (println (str "Downloading " path " from " url))
+  (write-file @(http/get url {:insecure? true :as :byte-array}) path))
+
+(defn download-data-map
+  [path-so-far data-map access-token]
+  (println "Downoading data map...")
+  (cond
+    (= (type data-map) clojure.lang.PersistentList)
+      (map #(download-data-map path-so-far % access-token) data-map)
+    (= (type data-map) clojure.lang.PersistentArrayMap)
+      (download-data-map (str path-so-far "/" (-> data-map first first)) (-> data-map first second) access-token)
+    (= (type data-map) java.lang.String)
+      (download-file
+        (str path-so-far "/" data-map "." (guess-file-extension path-so-far))
+        (str LAYERVAULT-DOWNLOAD data-map "?access_token=" access-token))))
 
 
 ;; Entry point
@@ -103,4 +156,7 @@
     (cond
       (not= (count arguments) 2) (exit 1 usage)
       errors (exit 1 (error-msg errors)))
-    (query-user (first arguments))))
+    (let [auth-token (first arguments)
+          dir (second arguments)
+          dl-data (query-user auth-token)]
+      (download-data-map dir dl-data auth-token))))
