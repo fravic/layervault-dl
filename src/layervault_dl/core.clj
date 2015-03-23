@@ -127,9 +127,9 @@
   [path-so-far data-map access-token]
   (cond
     (= (type data-map) clojure.lang.PersistentList)
-      (map #(download-data-map path-so-far % access-token) data-map)
+      (map #(recur path-so-far % access-token) data-map)
     (= (type data-map) clojure.lang.PersistentArrayMap)
-      (download-data-map (str path-so-far "/" (-> data-map first first)) (-> data-map first second) access-token)
+      (recur (str path-so-far "/" (-> data-map first first)) (-> data-map first second) access-token)
     (= (type data-map) java.lang.String)
       (download-file
         (str path-so-far "/" data-map "." (guess-file-extension path-so-far))
